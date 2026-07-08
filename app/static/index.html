@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RepoPilot</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260708-nav6" />
+  </head>
+  <body>
+    <main>
+      <section class="toolbar">
+        <div class="topline">
+          <div>
+            <h1>RepoPilot</h1>
+            <p class="subtitle" data-i18n="tagline">Evidence-first issue triage for local repositories.</p>
+          </div>
+          <div class="nav-actions">
+            <a class="nav-button nav-link" href="/settings" data-i18n="settings">Model Settings</a>
+            <button class="nav-button" id="langToggle" type="button">中文</button>
+          </div>
+        </div>
+        <div class="grid">
+          <label><span data-i18n="issueUrl">Issue URL</span> <input id="issueUrl" placeholder="https://github.com/org/repo/issues/123" /></label>
+          <label><span data-i18n="repoPath">Local Repo Path</span> <input id="repoPath" placeholder="D:/work/repo" /></label>
+        </div>
+        <label><span data-i18n="problem">Local Problem</span> <textarea id="problem" rows="3" data-i18n-placeholder="problemPlaceholder" placeholder="Use this when there is no GitHub issue."></textarea></label>
+        <div class="actions">
+          <button id="createBtn" data-i18n="createTask">Create Task</button>
+          <button id="scanBtn" data-i18n="scanRepo" disabled>Scan Repo</button>
+          <button id="analyzeBtn" data-i18n="analyze" disabled>Analyze</button>
+        </div>
+      </section>
+
+      <section class="columns">
+        <article>
+          <h2 data-i18n="issue">Issue</h2>
+          <pre id="issuePanel" data-i18n="noTask">No task yet.</pre>
+        </article>
+        <article>
+          <h2 data-i18n="evidence">Evidence</h2>
+          <pre id="evidencePanel" data-i18n="noEvidence">No evidence yet.</pre>
+        </article>
+      </section>
+
+      <section>
+        <h2 data-i18n="report">Report</h2>
+        <pre id="reportPanel" data-i18n="noReport">No report yet.</pre>
+      </section>
+
+      <section class="testbar">
+        <label>
+          <span data-i18n="testCommand">Test Command</span>
+          <input id="testCommand" list="testCommandOptions" placeholder="pytest" />
+          <small class="command-help" id="testCommandHelp" data-i18n="commandHelpEmpty">Analyze first to get command suggestions.</small>
+        </label>
+        <datalist id="testCommandOptions"></datalist>
+        <button id="testBtn" data-i18n="runTest" disabled>Run Test</button>
+      </section>
+      <section>
+        <h2 data-i18n="testResult">Test Result</h2>
+        <pre id="testPanel" data-i18n="noTest">No test run yet.</pre>
+      </section>
+    </main>
+    <script src="/static/i18n.js?v=20260708-nav6"></script>
+    <script src="/static/app.js?v=20260708-nav6"></script>
+  </body>
+</html>
