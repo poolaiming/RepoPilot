@@ -368,3 +368,17 @@
 ### Notes
 - Changed files: `app/services/search.py` adds local intent expansion, ranking, unique-file results, and Windows path parsing; `app/services/analyzer.py` adds provider-assisted query expansion; `app/main.py` runs the second search pass when needed; `tests/test_core.py` covers natural-language search and model query parsing; `README.md` and `docs/architecture.md` document the new flow; `progress.md` records this task.
 - Rollback: remove `INTENT_HINTS`, `expand_search_queries`, the second search pass, the new ranking helpers and tests, then restore the previous README and architecture wording.
+
+## 2026-07-21 - Task: Add Chinese README
+### What was done
+- Changed the project README into a bilingual document with Chinese first and English retained below.
+- Added Chinese descriptions for features, startup, usage, configuration, safety boundaries, and the resume summary.
+- Added language navigation at the top of the README.
+
+### Testing
+- Read `README.md` as UTF-8 and verified the Chinese text and required bilingual headings.
+- `git diff --check` completed successfully.
+
+### Notes
+- Changed files: `README.md` adds the Chinese documentation and keeps the English version; `progress.md` records this task.
+- Rollback: restore `README.md` and remove this final progress entry.
