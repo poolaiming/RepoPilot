@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -12,6 +13,7 @@ from app.services.config import (
     OPENAI_DEFAULT_BASE_URL,
     config_value,
 )
+from app.services.search import extract_queries
 
 
 def build_context(task: dict, issue: dict | None, search_results: list[dict]) -> str:
@@ -97,6 +99,174 @@ def _provider_has_key() -> bool:
 def _openai_client_kwargs() -> dict[str, str]:
     base_url = config_value("OPENAI_BASE_URL", OPENAI_DEFAULT_BASE_URL)
     return {"api_key": config_value("OPENAI_API_KEY"), "base_url": base_url}
+
+
+def extract_memory(text: str) -> str | None:
+    match = re.match(r"^(?:请)?记住[：:\s]*(.+)$", text.strip(), re.IGNORECASE)
+    if not match:
+        match = re.match(r"^remember[：:\s]+(.+)$", text.strip(), re.IGNORECASE)
+    return match.group(1).strip() if match else None
+
+
+async def chat_reply(
+    conversation: dict,
+    messages: list[dict],
+    memories: list[dict],
+    search_results: list[dict],
+    lang: str,
+) -> str:
+    lang = _lang(lang)
+    context = _chat_context(conversation, messages, memories, search_results)
+    if _provider_has_key():
+        try:
+            if config_value("MODEL_PROVIDER", "openai") == "anthropic":
+                return await _anthropic_chat(context, lang)
+            return await _openai_chat(context, lang)
+        except Exception:
+            pass
+    return _fallback_chat(search_results, memories, lang)
+
+
+async def expand_search_queries(text: str, limit: int = 8) -> list[str]:
+    if not _provider_has_key():
+        return []
+    try:
+        if config_value("MODEL_PROVIDER", "openai") == "anthropic":
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"{config_value('ANTHROPIC_BASE_URL', ANTHROPIC_DEFAULT_BASE_URL).rstrip('/')}/messages",
+                    headers={
+                        "x-api-key": config_value("ANTHROPIC_API_KEY"),
+                        "anthropic-version": ANTHROPIC_VERSION,
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": config_value("ANTHROPIC_MODEL"),
+                        "max_tokens": 240,
+                        "system": _search_prompt(),
+                        "messages": [{"role": "user", "content": text}],
+                    },
+                )
+                response.raise_for_status()
+            output = _anthropic_text(response.json())
+        else:
+            from openai import AsyncOpenAI
+
+            client = AsyncOpenAI(**_openai_client_kwargs())
+            response = await client.responses.create(
+                model=config_value("OPENAI_MODEL", "gpt-4.1-mini"),
+                input=[
+                    {"role": "system", "content": _search_prompt()},
+                    {"role": "user", "content": text},
+                ],
+            )
+            output = response.output_text
+        return _parse_search_queries(output, limit)
+    except Exception:
+        return []
+
+
+async def _openai_chat(context: str, lang: str) -> str:
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(**_openai_client_kwargs())
+    response = await client.responses.create(
+        model=config_value("OPENAI_MODEL", "gpt-4.1-mini"),
+        input=[
+            {"role": "system", "content": _chat_prompt(lang)},
+            {"role": "user", "content": context},
+        ],
+    )
+    return response.output_text.strip()
+
+
+async def _anthropic_chat(context: str, lang: str) -> str:
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{config_value('ANTHROPIC_BASE_URL', ANTHROPIC_DEFAULT_BASE_URL).rstrip('/')}/messages",
+            headers={
+                "x-api-key": config_value("ANTHROPIC_API_KEY"),
+                "anthropic-version": ANTHROPIC_VERSION,
+                "content-type": "application/json",
+            },
+            json={
+                "model": config_value("ANTHROPIC_MODEL"),
+                "max_tokens": 1800,
+                "system": _chat_prompt(lang),
+                "messages": [{"role": "user", "content": context}],
+            },
+        )
+        response.raise_for_status()
+    return _anthropic_text(response.json()).strip()
+
+
+def _chat_prompt(lang: str) -> str:
+    language = "Simplified Chinese" if _lang(lang) == "zh" else "English"
+    return (
+        "You are RepoPilot, a concise engineering conversation agent. "
+        "Answer from the supplied repository evidence and memories. "
+        "Never invent file paths or test results. Clearly separate facts from suggestions. "
+        "Use short paragraphs and bullets, and mention the most relevant files when present. "
+        f"Reply in {language}."
+    )
+
+
+def _search_prompt() -> str:
+    return (
+        "Convert the repository question into a JSON array of short literal search terms likely to appear "
+        "in source code. Include English identifiers for non-English questions. Prefer function names, "
+        "domain nouns, framework terms, and file concepts. Return 4 to 8 strings and no prose."
+    )
+
+
+def _parse_search_queries(text: str, limit: int = 8) -> list[str]:
+    match = re.search(r"\[[\s\S]*\]", text)
+    if not match:
+        return []
+    data = json.loads(match.group(0))
+    if not isinstance(data, list):
+        return []
+    return extract_queries(" ".join(str(item) for item in data), limit)
+
+
+def _chat_context(
+    conversation: dict,
+    messages: list[dict],
+    memories: list[dict],
+    search_results: list[dict],
+) -> str:
+    issue = conversation.get("issue") or {}
+    history = "\n".join(f"{item['role'].upper()}: {item['content']}" for item in messages[-12:])
+    memory_text = "\n".join(f"- {item['content']}" for item in memories[:12]) or "(none)"
+    evidence = "\n\n".join(
+        f"FILE: {item['file_path']}\n{item['snippet']}" for item in search_results[:8]
+    ) or "(none)"
+    return (
+        f"REPOSITORY: {conversation['repo_path']}\n"
+        f"ISSUE: {issue.get('title', '')}\n{issue.get('body', '')}\n\n"
+        f"LONG-TERM MEMORY:\n{memory_text}\n\n"
+        f"RECENT CONVERSATION:\n{history}\n\n"
+        f"CODE EVIDENCE:\n{evidence}"
+    )
+
+
+def _fallback_chat(search_results: list[dict], memories: list[dict], lang: str) -> str:
+    files = [item["file_path"] for item in search_results[:5]]
+    if _lang(lang) == "zh":
+        lines = ["我已结合当前对话和仓库记忆检查这个问题。"]
+        lines.append(
+            f"相关文件：{', '.join(files)}。" if files else "没有找到与该自然语言问题相关的代码证据。"
+        )
+        if memories:
+            lines.append(f"已参考 {len(memories)} 条仓库长期记忆。")
+        lines.append("建议先检查最相关文件，再运行右侧推荐的验证命令。")
+        return "\n".join(lines)
+    lines = ["I checked the question against the current conversation and repository memory."]
+    lines.append(f"Relevant files: {', '.join(files)}." if files else "No related code evidence was found.")
+    if memories:
+        lines.append(f"Used {len(memories)} saved repository memories.")
+    lines.append("Inspect the most relevant file, then run one of the suggested verification commands.")
+    return "\n".join(lines)
 
 
 def _fallback_analyze(task: dict, issue: dict | None, search_results: list[dict], lang: str = "zh") -> TriageReport:

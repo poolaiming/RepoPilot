@@ -1,8 +1,10 @@
 # RepoPilot
 
-RepoPilot is a small GitHub issue triage agent. It reads an issue or local
-problem statement, searches a local repository with `rg`, produces a grounded
-fix plan, and can run one verification command after human approval.
+RepoPilot is a conversational engineering agent for local repositories. It
+keeps recent conversation context, stores explicit repository memories, expands
+Chinese or other natural-language questions into likely code terms, searches
+with `rg`, explains relevant evidence, and runs one verification command after
+human approval.
 
 ## Quick Start
 
@@ -18,12 +20,25 @@ uvicorn app.main:app --reload --env-file .env
 
 Open `http://127.0.0.1:8000`.
 
+Create a conversation by selecting a local repository and optionally attaching
+a GitHub Issue. Ask questions normally, or save durable repository knowledge
+with:
+
+```text
+记住：这个项目使用 pytest
+Remember: use npm test for this repository
+```
+
 Open `http://127.0.0.1:8000/settings` to switch between OpenAI and Anthropic,
 fetch model lists from the selected provider, save the active model to `.env`,
 and switch the UI between Chinese and English.
 
-For a no-LLM smoke test, create a task with a local problem, scan the current
-repository path, and run analysis with `use_llm=false`.
+Without an LLM key, conversations still search the repository and return a
+deterministic evidence summary. Common intents such as project overview,
+startup, authentication, configuration, storage, API routes, search, tests,
+frontend UI, and payments also have local query expansion. When a configured
+model is available and the first search has no hits, RepoPilot asks the active
+OpenAI or Anthropic model for additional source-code search terms.
 
 ## Configuration
 
@@ -54,11 +69,12 @@ ANTHROPIC_MODEL=your-model
 
 ## Safety Boundary
 
-RepoPilot does not edit files, commit, push, or merge code. It only reads issues,
-searches local code, generates a report, and runs a single explicit test command.
+RepoPilot does not edit files, commit, push, or merge code. It reads issues and
+local code, stores conversation memory in SQLite, and runs only an explicit test
+command selected by the user.
 
 ## Resume Bullet
 
-Built RepoPilot, an agentic GitHub issue triage assistant that ingests issues,
-searches repository context with tool calls, generates grounded root-cause
-hypotheses and fix plans, and runs verification commands with human approval.
+Built RepoPilot, a conversational engineering agent with repository-scoped
+long-term memory, evidence-grounded local code search, OpenAI/Anthropic support,
+and human-approved verification commands.

@@ -1,8 +1,19 @@
+from fastapi.testclient import TestClient
+
+import app.db as db
+from app.main import app
 from app.models import TriageReport
-from app.services.analyzer import _anthropic_text, _fallback_analyze, _openai_client_kwargs, report_to_markdown
+from app.services.analyzer import (
+    _anthropic_text,
+    _fallback_analyze,
+    _openai_client_kwargs,
+    _parse_search_queries,
+    extract_memory,
+    report_to_markdown,
+)
 from app.services.config import _model_ids, _trim_url
 from app.services.github import parse_issue_url
-from app.services.search import extract_queries
+from app.services.search import extract_queries, search_repo
 from app.services.testing import suggest_test_commands
 
 
@@ -23,6 +34,43 @@ def test_extract_queries_keeps_chinese_terms():
     queries = extract_queries("登录失败 支付回调")
     assert "登录失败" in queries
     assert "支付回调" in queries
+
+
+def test_natural_language_search_expands_to_related_code(tmp_path):
+    source = tmp_path / "main.py"
+    source.write_text("from fastapi import FastAPI\napp = FastAPI()\n", encoding="utf-8")
+    queries = extract_queries("查一下这个项目大概作用")
+    results = search_repo(str(tmp_path), queries)
+    assert "FastAPI" in queries
+    assert results[0]["file_path"] == str(source)
+
+
+def test_parse_search_queries_accepts_model_json():
+    queries = _parse_search_queries('["authentication", "session token", "login_user"]')
+    assert {"authentication", "login_user", "session", "token"}.issubset(queries)
+
+
+def test_conversation_saves_repository_memory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.sqlite3")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/conversations",
+            json={"repo_path": str(repo), "lang": "zh"},
+        ).json()
+        conversation_id = created["conversation"]["id"]
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            json={"content": "记住：这个项目使用 pytest", "lang": "zh"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["memories"][0]["content"] == "这个项目使用 pytest"
+    assert response.json()["test_commands"] == []
+    assert extract_memory("remember: use npm test") == "use npm test"
 
 
 def test_fallback_report_mentions_evidence_file():

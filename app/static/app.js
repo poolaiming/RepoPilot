@@ -1,11 +1,10 @@
-let taskId = null;
+let currentConversationId = null;
+let currentConversation = null;
+let currentCommands = [];
 
 const $ = (id) => document.getElementById(id);
-const show = (id, value) => {
-  $(id).textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-};
 
-async function request(path, options = {}) {
+async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -16,92 +15,305 @@ async function request(path, options = {}) {
   return data;
 }
 
-$("createBtn").addEventListener("click", async () => {
-  try {
-    const payload = {
-      issue_url: $("issueUrl").value.trim() || null,
-      problem: $("problem").value.trim() || null,
-      repo_path: $("repoPath").value.trim(),
-    };
-    const data = await request("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
-    taskId = data.task.id;
-    $("scanBtn").disabled = false;
-    $("analyzeBtn").disabled = false;
-    $("testBtn").disabled = false;
-    show("issuePanel", data.issue || data.task.problem || I18N.t("taskCreated"));
-  } catch (error) {
-    show("issuePanel", error.message);
-  }
-});
-
-$("scanBtn").addEventListener("click", async () => {
-  try {
-    const data = await request(`/api/tasks/${taskId}/scan`, { method: "POST", body: JSON.stringify({}) });
-    show("evidencePanel", data);
-  } catch (error) {
-    show("evidencePanel", error.message);
-  }
-});
-
-$("analyzeBtn").addEventListener("click", async () => {
-  try {
-    const data = await request(`/api/tasks/${taskId}/analyze`, {
-      method: "POST",
-      body: JSON.stringify({ use_llm: true, lang: I18N.lang() }),
-    });
-    show("reportPanel", data.markdown);
-    setTestCommandOptions(data.test_commands || []);
-  } catch (error) {
-    show("reportPanel", error.message);
-  }
-});
-
-$("testBtn").addEventListener("click", async () => {
-  try {
-    const data = await request(`/api/tasks/${taskId}/test`, {
-      method: "POST",
-      body: JSON.stringify({ command: $("testCommand").value.trim() }),
-    });
-    show("testPanel", formatTestResult($("testCommand").value.trim(), data));
-  } catch (error) {
-    show("testPanel", error.message);
-  }
-});
-
-function setTestCommandOptions(commands) {
-  $("testCommandOptions").innerHTML = "";
-  for (const command of commands) {
-    const option = document.createElement("option");
-    option.value = command;
-    option.label = commandDescription(command);
-    $("testCommandOptions").appendChild(option);
-  }
-  if (!$("testCommand").value && commands.length) $("testCommand").value = commands[0];
-  showCommandHelp(commands);
+function showSetup() {
+  currentConversationId = null;
+  currentConversation = null;
+  $("setupView").hidden = false;
+  $("chatView").hidden = true;
+  $("conversationTitle").textContent = I18N.t("welcomeTitle");
+  $("repoLabel").textContent = I18N.t("welcomeSubtitle");
+  renderMemories([]);
+  renderEvidence([]);
+  renderCommands([]);
+  document.querySelectorAll(".conversation-item").forEach((node) => node.classList.remove("active"));
+  $("repoPath").focus();
 }
 
-function formatTestResult(command, result) {
-  const summary = result.exit_code === 0 ? I18N.t("testPassed") : I18N.t("testFailed");
-  return `${I18N.t("command")}: ${command}\n${I18N.t("exitCode")}: ${result.exit_code}\n\n${I18N.t("output")}:\n${result.output || ""}\n\n${I18N.t("explanation")}:\n${summary}`;
+async function loadConversations(selectLatest = false) {
+  const data = await api("/api/conversations");
+  renderConversations(data.conversations);
+  if ((selectLatest || !currentConversationId) && data.conversations.length) {
+    await loadConversation(data.conversations[0].id);
+  } else if (!data.conversations.length) {
+    showSetup();
+  }
 }
 
-function showCommandHelp(commands) {
-  $("testCommandHelp").removeAttribute("data-i18n");
-  if (!commands.length) {
-    $("testCommandHelp").textContent = I18N.t("commandHelpEmpty");
+function renderConversations(conversations) {
+  $("conversationList").innerHTML = "";
+  if (!conversations.length) {
+    const empty = document.createElement("p");
+    empty.className = "sidebar-empty";
+    empty.textContent = I18N.t("noConversations");
+    $("conversationList").appendChild(empty);
     return;
   }
-  $("testCommandHelp").textContent = `${I18N.t("commandHelpTitle")}\n${commands.map((command) => `${command}: ${commandDescription(command)}`).join("\n")}`;
+  for (const conversation of conversations) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `conversation-item${conversation.id === currentConversationId ? " active" : ""}`;
+    button.dataset.id = conversation.id;
+
+    const title = document.createElement("strong");
+    title.textContent = conversation.title;
+    const repo = document.createElement("span");
+    repo.textContent = conversation.repo_path.split(/[\\/]/).filter(Boolean).pop() || conversation.repo_path;
+    button.append(title, repo);
+    button.addEventListener("click", () => loadConversation(conversation.id));
+    $("conversationList").appendChild(button);
+  }
+}
+
+async function loadConversation(id) {
+  const data = await api(`/api/conversations/${id}`);
+  currentConversationId = id;
+  currentConversation = data.conversation;
+  $("setupView").hidden = true;
+  $("chatView").hidden = false;
+  $("conversationTitle").textContent = data.conversation.title;
+  $("repoLabel").textContent = data.conversation.repo_path;
+  renderMessages(data.messages);
+  renderMemories(data.memories);
+
+  const latestMetadata = [...data.messages].reverse().find((item) => item.metadata?.evidence || item.metadata?.test_commands)?.metadata || {};
+  renderEvidence(latestMetadata.evidence || []);
+  renderCommands(latestMetadata.test_commands || []);
+  document.querySelectorAll(".conversation-item").forEach((node) => {
+    node.classList.toggle("active", Number(node.dataset.id) === id);
+  });
+  $("messageInput").focus();
+}
+
+function renderMessages(messages) {
+  $("messages").innerHTML = "";
+  if (!messages.length) {
+    appendMessage({
+      role: "assistant",
+      content: I18N.t("startPrompt"),
+    });
+    return;
+  }
+  messages.forEach(appendMessage);
+  scrollMessages();
+}
+
+function appendMessage(message, extraClass = "") {
+  const row = document.createElement("article");
+  row.className = `message-row ${message.role} ${extraClass}`.trim();
+
+  const avatar = document.createElement("div");
+  avatar.className = "message-avatar";
+  avatar.textContent = message.role === "user" ? "U" : "R";
+
+  const body = document.createElement("div");
+  body.className = "message-body";
+  const author = document.createElement("div");
+  author.className = "message-author";
+  author.textContent = message.role === "user" ? I18N.t("you") : message.role === "tool" ? I18N.t("toolResult") : "RepoPilot";
+  const content = document.createElement("div");
+  content.className = "message-content";
+  content.textContent = message.content;
+  body.append(author, content);
+  row.append(message.role === "user" ? body : avatar, message.role === "user" ? avatar : body);
+  $("messages").appendChild(row);
+  scrollMessages();
+  return row;
+}
+
+function renderMemories(memories) {
+  $("memoryList").innerHTML = "";
+  $("memoryCount").textContent = memories.length;
+  if (!memories.length) {
+    $("memoryList").appendChild(emptyCopy(I18N.t("noMemory")));
+    return;
+  }
+  for (const memory of memories) {
+    const card = document.createElement("div");
+    card.className = "memory-card";
+    const text = document.createElement("p");
+    text.textContent = memory.content;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-button";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", I18N.t("deleteMemory"));
+    remove.addEventListener("click", async () => {
+      await api(`/api/memories/${memory.id}`, { method: "DELETE" });
+      await loadConversation(currentConversationId);
+    });
+    card.append(text, remove);
+    $("memoryList").appendChild(card);
+  }
+}
+
+function renderEvidence(evidence) {
+  $("evidenceList").innerHTML = "";
+  $("evidenceCount").textContent = evidence.length;
+  if (!evidence.length) {
+    $("evidenceList").appendChild(emptyCopy(I18N.t("noEvidence")));
+    return;
+  }
+  for (const item of evidence) {
+    const card = document.createElement("div");
+    card.className = "evidence-card";
+    const path = document.createElement("strong");
+    path.textContent = item.file_path;
+    const snippet = document.createElement("p");
+    snippet.textContent = item.snippet.split("\n").slice(0, 3).join("\n");
+    card.append(path, snippet);
+    $("evidenceList").appendChild(card);
+  }
+}
+
+function renderCommands(commands) {
+  currentCommands = commands;
+  $("commandChips").innerHTML = "";
+  $("runTestBtn").disabled = !currentConversationId;
+  if (!commands.length) {
+    $("commandChips").appendChild(emptyCopy(I18N.t("noTestCommands")));
+    return;
+  }
+  for (const command of commands) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "command-chip";
+    const code = document.createElement("strong");
+    code.textContent = command;
+    const description = document.createElement("span");
+    description.textContent = commandDescription(command);
+    button.append(code, description);
+    button.addEventListener("click", () => {
+      $("testCommand").value = command;
+      $("testCommand").focus();
+    });
+    $("commandChips").appendChild(button);
+  }
+  if (!$("testCommand").value) $("testCommand").value = commands[0];
 }
 
 function commandDescription(command) {
   const zh = I18N.lang() === "zh";
-  if (command.includes("pytest")) return zh ? "运行 Python 自动测试，检查功能是否按预期通过。" : "Runs Python tests to check behavior.";
-  if (command.includes("compileall")) return zh ? "检查 Python 文件有没有语法错误。" : "Checks Python files for syntax errors.";
-  if (command === "npm test") return zh ? "运行前端或 Node 项目的测试脚本。" : "Runs the Node or frontend test script.";
-  if (command === "npm run lint") return zh ? "检查前端或 Node 代码风格和常见问题。" : "Checks Node or frontend lint rules.";
-  if (command.startsWith("go test")) return zh ? "运行 Go 项目的测试。" : "Runs Go tests.";
-  if (command === "cargo test") return zh ? "运行 Rust 项目的测试。" : "Runs Rust tests.";
-  if (command === "mvn test") return zh ? "运行 Java Maven 项目的测试。" : "Runs Java Maven tests.";
-  return zh ? "运行项目验证命令。" : "Runs a project verification command.";
+  if (command.includes("pytest")) return zh ? "运行 Python 自动测试" : "Run Python tests";
+  if (command.includes("compileall")) return zh ? "检查 Python 语法" : "Check Python syntax";
+  if (command === "npm test") return zh ? "运行 Node 测试" : "Run Node tests";
+  if (command === "npm run lint") return zh ? "检查代码规范" : "Check lint rules";
+  if (command.startsWith("go test")) return zh ? "运行 Go 测试" : "Run Go tests";
+  if (command === "cargo test") return zh ? "运行 Rust 测试" : "Run Rust tests";
+  if (command === "mvn test") return zh ? "运行 Maven 测试" : "Run Maven tests";
+  return zh ? "运行项目验证" : "Run project verification";
 }
+
+function emptyCopy(text) {
+  const empty = document.createElement("p");
+  empty.className = "empty-copy";
+  empty.textContent = text;
+  return empty;
+}
+
+function scrollMessages() {
+  requestAnimationFrame(() => {
+    $("messages").scrollTop = $("messages").scrollHeight;
+  });
+}
+
+function setSending(sending) {
+  $("sendBtn").disabled = sending;
+  $("messageInput").disabled = sending;
+}
+
+$("workspaceForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("setupError").textContent = "";
+  $("createConversationBtn").disabled = true;
+  try {
+    const data = await api("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify({
+        repo_path: $("repoPath").value.trim(),
+        issue_url: $("issueUrl").value.trim() || null,
+        lang: I18N.lang(),
+      }),
+    });
+    await loadConversation(data.conversation.id);
+    await loadConversations();
+  } catch (error) {
+    $("setupError").textContent = error.message;
+  } finally {
+    $("createConversationBtn").disabled = false;
+  }
+});
+
+$("messageForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const content = $("messageInput").value.trim();
+  if (!content || !currentConversationId) return;
+  $("messageInput").value = "";
+  autoResizeMessageInput();
+  appendMessage({ role: "user", content });
+  const pending = appendMessage({ role: "assistant", content: I18N.t("thinking") }, "pending");
+  setSending(true);
+  try {
+    const data = await api(`/api/conversations/${currentConversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content, lang: I18N.lang() }),
+    });
+    pending.remove();
+    appendMessage(data.message);
+    renderEvidence(data.evidence || []);
+    renderCommands(data.test_commands || []);
+    renderMemories(data.memories || []);
+    if (currentConversation && ["新对话", "New conversation"].includes(currentConversation.title)) {
+      currentConversation.title = content.slice(0, 48);
+      $("conversationTitle").textContent = currentConversation.title;
+    }
+    await loadConversations();
+  } catch (error) {
+    pending.remove();
+    appendMessage({ role: "assistant", content: error.message }, "error");
+  } finally {
+    setSending(false);
+    $("messageInput").focus();
+  }
+});
+
+$("messageInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    $("messageForm").requestSubmit();
+  }
+});
+
+$("messageInput").addEventListener("input", autoResizeMessageInput);
+
+function autoResizeMessageInput() {
+  $("messageInput").style.height = "auto";
+  $("messageInput").style.height = `${Math.min($("messageInput").scrollHeight, 180)}px`;
+}
+
+$("runTestBtn").addEventListener("click", async () => {
+  const command = $("testCommand").value.trim();
+  if (!command || !currentConversationId) {
+    $("testError").textContent = I18N.t("enterTestCommand");
+    return;
+  }
+  $("testError").textContent = "";
+  $("runTestBtn").disabled = true;
+  try {
+    const data = await api(`/api/conversations/${currentConversationId}/test`, {
+      method: "POST",
+      body: JSON.stringify({ command, lang: I18N.lang() }),
+    });
+    appendMessage(data.message);
+  } catch (error) {
+    $("testError").textContent = error.message;
+  } finally {
+    $("runTestBtn").disabled = false;
+  }
+});
+
+$("newChatBtn").addEventListener("click", showSetup);
+
+loadConversations(true).catch((error) => {
+  showSetup();
+  $("setupError").textContent = error.message;
+});

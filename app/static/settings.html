@@ -1,59 +1,120 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RepoPilot Settings</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260708-nav6" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/styles.css?v=20260719-chat6" />
   </head>
-  <body>
-    <main>
-      <section class="toolbar">
-        <div class="topline">
+  <body class="settings-body">
+    <div class="settings-shell">
+      <aside class="sidebar settings-sidebar">
+        <div class="brand-row">
+          <div class="brand-mark">R</div>
           <div>
-            <h1 data-i18n="settings">Model Settings</h1>
-            <p class="subtitle" data-i18n="tagline">Evidence-first issue triage for local repositories.</p>
-          </div>
-          <div class="nav-actions">
-            <a class="nav-button nav-link" href="/" data-i18n="back">Back</a>
-            <button class="nav-button" id="langToggle" type="button">中文</button>
+            <strong>RepoPilot</strong>
+            <span data-i18n="chatAgent">工程对话 Agent</span>
           </div>
         </div>
-        <label><span data-i18n="provider">Provider</span>
-          <select id="provider">
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
-        </label>
-      </section>
 
-      <section id="openaiPanel">
-        <h2>OpenAI</h2>
-        <label><span data-i18n="apiKey">API Key</span> <input id="openaiKey" type="password" data-i18n-placeholder="keepKey" placeholder="Leave blank to keep existing key" /></label>
-        <label><span data-i18n="baseUrl">Base URL</span> <input id="openaiBaseUrl" placeholder="https://api.openai.com/v1" /></label>
-        <label><span data-i18n="model">Model</span>
-          <select id="openaiModel"></select>
-        </label>
-      </section>
-
-      <section id="anthropicPanel">
-        <h2>Anthropic</h2>
-        <label><span data-i18n="apiKey">API Key</span> <input id="anthropicKey" type="password" data-i18n-placeholder="keepKey" placeholder="Leave blank to keep existing key" /></label>
-        <label><span data-i18n="baseUrl">Base URL</span> <input id="anthropicBaseUrl" placeholder="https://api.anthropic.com/v1" /></label>
-        <label><span data-i18n="model">Model</span>
-          <select id="anthropicModel"></select>
-        </label>
-      </section>
-
-      <section>
-        <div class="actions">
-          <button id="fetchModelsBtn" data-i18n="fetchModels">Fetch Models</button>
-          <button id="saveBtn" data-i18n="save">Save</button>
+        <div class="settings-sidebar-copy">
+          <span class="sidebar-label" data-i18n="settings">模型设置</span>
+          <p data-i18n="tagline">面向本地仓库的证据优先 Issue 分诊。</p>
         </div>
-        <pre id="statusPanel" data-i18n="loading">Loading...</pre>
-      </section>
-    </main>
-    <script src="/static/i18n.js?v=20260708-nav6"></script>
-    <script src="/static/settings.js?v=20260708-nav6"></script>
+
+        <div class="sidebar-footer">
+          <a class="sidebar-link settings-back" href="/" data-i18n="back">返回</a>
+          <button class="sidebar-link" id="langToggle" type="button">中文</button>
+        </div>
+      </aside>
+
+      <main class="settings-main">
+        <header class="settings-header">
+          <div>
+            <span class="eyebrow" data-i18n="settings">模型设置</span>
+            <h1 data-i18n="settings">模型设置</h1>
+            <p data-i18n="tagline">面向本地仓库的证据优先 Issue 分诊。</p>
+          </div>
+        </header>
+
+        <div class="settings-content">
+          <section class="settings-card provider-card">
+            <div class="settings-card-heading">
+              <div>
+                <span class="eyebrow" data-i18n="provider">接口类型</span>
+                <h2 data-i18n="provider">接口类型</h2>
+              </div>
+            </div>
+            <label>
+              <span class="sr-only" data-i18n="provider">接口类型</span>
+              <select id="provider">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="settings-card" id="openaiPanel">
+            <div class="settings-card-heading">
+              <div class="provider-mark">O</div>
+              <div>
+                <span class="eyebrow">Provider</span>
+                <h2>OpenAI</h2>
+              </div>
+            </div>
+            <div class="settings-fields">
+              <label>
+                <span data-i18n="apiKey">API Key</span>
+                <input id="openaiKey" type="password" data-i18n-placeholder="keepKey" placeholder="留空则保留现有 key" />
+              </label>
+              <label>
+                <span data-i18n="baseUrl">Base URL</span>
+                <input id="openaiBaseUrl" placeholder="https://api.openai.com/v1" />
+              </label>
+              <label>
+                <span data-i18n="model">模型</span>
+                <select id="openaiModel"></select>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-card" id="anthropicPanel">
+            <div class="settings-card-heading">
+              <div class="provider-mark anthropic">A</div>
+              <div>
+                <span class="eyebrow">Provider</span>
+                <h2>Anthropic</h2>
+              </div>
+            </div>
+            <div class="settings-fields">
+              <label>
+                <span data-i18n="apiKey">API Key</span>
+                <input id="anthropicKey" type="password" data-i18n-placeholder="keepKey" placeholder="留空则保留现有 key" />
+              </label>
+              <label>
+                <span data-i18n="baseUrl">Base URL</span>
+                <input id="anthropicBaseUrl" placeholder="https://api.anthropic.com/v1" />
+              </label>
+              <label>
+                <span data-i18n="model">模型</span>
+                <select id="anthropicModel"></select>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-card settings-save-card">
+            <div class="settings-actions">
+              <button class="secondary-button" id="fetchModelsBtn" type="button" data-i18n="fetchModels">拉取模型</button>
+              <button class="primary-button" id="saveBtn" type="button" data-i18n="save">保存</button>
+            </div>
+            <pre class="settings-status" id="statusPanel" data-i18n="loading" aria-live="polite">加载中...</pre>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="/static/i18n.js?v=20260719-chat5"></script>
+    <script src="/static/settings.js?v=20260719-chat5"></script>
   </body>
 </html>

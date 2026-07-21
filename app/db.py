@@ -53,6 +53,34 @@ def init_db() -> None:
                 output text not null,
                 created_at text not null default current_timestamp
             );
+            create table if not exists conversations (
+                id integer primary key autoincrement,
+                title text not null,
+                repo_path text not null,
+                issue_url text,
+                issue_json text not null default '{}',
+                lang text not null default 'zh',
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp
+            );
+            create table if not exists messages (
+                id integer primary key autoincrement,
+                conversation_id integer not null,
+                role text not null,
+                content text not null,
+                metadata_json text not null default '{}',
+                created_at text not null default current_timestamp
+            );
+            create table if not exists memories (
+                id integer primary key autoincrement,
+                repo_path text not null,
+                content text not null,
+                source text not null default 'user',
+                created_at text not null default current_timestamp,
+                unique(repo_path, content)
+            );
+            create index if not exists idx_messages_conversation on messages(conversation_id, id);
+            create index if not exists idx_memories_repo on memories(repo_path, id);
             """
         )
 

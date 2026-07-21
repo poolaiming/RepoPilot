@@ -292,3 +292,79 @@
 ### Notes
 - Changed files: `app/static/index.html` adds the command help line; `app/static/app.js` renders command descriptions and test explanations; `app/static/i18n.js` adds Chinese/English wording; `app/static/styles.css` styles the helper text; `settings.html` bumps static asset versions; `progress.md` records the update.
 - Rollback: remove `testCommandHelp`, delete the command description and explanation helpers from `app.js`, remove the added i18n keys and `.command-help` style, then restore static asset versions.
+
+## 2026-07-19 - Task: Convert RepoPilot into a conversational agent with repository memory
+### What was done
+- Replaced the linear task screen with a modern responsive conversation workspace containing conversation history, repository setup, chat messages, code evidence, long-term memory, and test command panels.
+- Added repository-scoped conversations, persistent messages, explicit `记住：...` / `Remember: ...` long-term memory, memory deletion, code search for each question, and OpenAI/Anthropic conversational replies with rule fallback.
+- Preserved human-approved test execution and displayed test results as conversation tool messages.
+- Updated project documentation for the conversational workflow and memory model.
+
+### Testing
+- `node --check app\\static\\i18n.js; node --check app\\static\\app.js; node --check app\\static\\settings.js` -> completed successfully.
+- `.\\.venv\\Scripts\\python.exe -m pytest -q` -> 9 passed.
+- `.\\.venv\\Scripts\\python.exe -m compileall app tests` -> completed successfully.
+- Live HTTP check: `/`, `/settings`, and `/api/conversations` returned 200; static pages include `20260719-chat4`.
+- Browser QA at 1440x900: created a conversation for `F:\\AI project\\ai agent`, saved two repository memories, received test command suggestions, and ran `python -m pytest -q` successfully.
+- Browser QA at 375x812: conversation history, new conversation, settings, language control, message input, and send action remained accessible without horizontal overflow.
+
+### Notes
+- Changed files: `app/db.py` adds conversation, message, and memory tables; `app/models.py`, `app/main.py`, and `app/services/analyzer.py` add conversational APIs and model/fallback replies; `app/static/index.html`, `app/static/app.js`, `app/static/i18n.js`, `app/static/styles.css`, and `settings.html` provide the new responsive UI; `tests/test_core.py` covers persistent memory; `README.md` and `docs/architecture.md` document the workflow.
+- Rollback: revert this task's changed files, restart the service, and remove the `conversations`, `messages`, and `memories` tables only if their stored data is no longer needed.
+
+## 2026-07-19 - Task: Unify model settings UI and move user avatars right
+### What was done
+- Rebuilt the model settings page with the same modern sidebar, header, cards, controls, color tokens, and responsive behavior as the conversation workspace.
+- Moved each user avatar to the right of its message bubble while keeping RepoPilot and tool avatars on the left.
+- Added static asset cache busting and an empty favicon to prevent stale styling and console noise.
+
+### Testing
+- `node --check app/static/i18n.js; node --check app/static/app.js; node --check app/static/settings.js` -> completed successfully.
+- `.\\.venv\\Scripts\\python.exe -m pytest -q` -> 9 passed, 3 existing deprecation warnings.
+- `.\\.venv\\Scripts\\python.exe -m compileall app tests` -> completed successfully.
+- Live HTTP checks: `/` and `/settings` returned 200 and included `20260719-chat5`.
+- Browser QA at `1440x900`: settings layout rendered without horizontal overflow; provider switching, language switching, and back navigation target worked; browser console had no errors.
+- Browser QA at `375x812`: settings page had no horizontal overflow and kept the back and language controls visible.
+- Message geometry check confirmed the user avatar starts after the user bubble's right edge.
+- `design-qa.md` -> `final result: passed`.
+
+### Notes
+- Changed files: `app/static/app.js` changes user message element order; `app/static/index.html` and `app/static/settings.html` update assets and page structure; `app/static/styles.css` adds the unified settings layout and right-side user message grid; `design-qa.md` records visual evidence; `progress.md` records this task.
+- Rollback: restore the previous settings markup and settings CSS block, restore `row.append(avatar, body)` in `appendMessage`, remove the user-specific grid override, and revert the static asset query strings.
+
+## 2026-07-19 - Task: Change the shared sidebar to a white theme
+### What was done
+- Changed the shared main/settings sidebar from dark navy to a translucent white surface that matches the rest of the interface.
+- Updated sidebar text, conversation states, empty text, borders, and footer buttons for readable contrast and a consistent indigo active state.
+- Bumped the shared stylesheet version so both pages load the new sidebar immediately.
+
+### Testing
+- `node --check app/static/i18n.js; node --check app/static/app.js; node --check app/static/settings.js` -> completed successfully.
+- `.\\.venv\\Scripts\\python.exe -m pytest -q` -> 9 passed, 3 existing deprecation warnings.
+- `.\\.venv\\Scripts\\python.exe -m compileall app tests` -> completed successfully.
+- Live HTTP checks: `/` and `/settings` returned 200 and included `20260719-chat6`.
+- Browser QA at `1440x900`: both pages rendered the shared sidebar as `rgba(255, 255, 255, 0.94)` with no horizontal overflow or console errors.
+- Browser QA at `375x812`: the white mobile navigation rendered without horizontal overflow.
+
+### Notes
+- Changed files: `app/static/styles.css` updates the shared sidebar palette and interaction states; `app/static/index.html` and `app/static/settings.html` bump the stylesheet version; `progress.md` records this task.
+- Rollback: restore the previous dark `.sidebar`, conversation, and `.sidebar-link` color rules, then change the stylesheet query string back to `20260719-chat5`.
+
+## 2026-07-19 - Task: Search approximate code from natural-language questions
+### What was done
+- Added local intent expansion so Chinese and English questions about project purpose, startup, authentication, configuration, storage, APIs, search, tests, UI, and payments produce likely source-code terms.
+- Added a second model-assisted query expansion pass through the active OpenAI or Anthropic provider only when the first local search returns no evidence.
+- Improved evidence quality by returning unique files, prioritizing source files and filename matches, and correctly parsing absolute Windows paths from `rg`.
+- Updated fallback wording and project documentation to describe natural-language code search.
+
+### Testing
+- `.\\.venv\\Scripts\\python.exe -m pytest -q` -> 11 passed, 3 existing deprecation warnings.
+- `.\\.venv\\Scripts\\python.exe -m compileall app tests` -> completed successfully.
+- Manual search for `查一下这个项目大概作用` returned `app/main.py`, `app/services/search.py`, `app/services/analyzer.py`, and `README.md`.
+- Manual search for `记忆相关的` returned `app/db.py`, `app/models.py`, `app/services/search.py`, and `app/main.py`.
+- Endpoint-level TestClient verification returned HTTP 200 and ranked `app/main.py` first for the Chinese project-purpose question.
+- Restarted the local service and verified `GET /api/conversations` returned HTTP 200 on PID `52776`.
+
+### Notes
+- Changed files: `app/services/search.py` adds local intent expansion, ranking, unique-file results, and Windows path parsing; `app/services/analyzer.py` adds provider-assisted query expansion; `app/main.py` runs the second search pass when needed; `tests/test_core.py` covers natural-language search and model query parsing; `README.md` and `docs/architecture.md` document the new flow; `progress.md` records this task.
+- Rollback: remove `INTENT_HINTS`, `expand_search_queries`, the second search pass, the new ranking helpers and tests, then restore the previous README and architecture wording.

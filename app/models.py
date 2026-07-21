@@ -33,6 +33,18 @@ class ModelConfigUpdate(BaseModel):
 
 class TestRequest(BaseModel):
     command: str
+    lang: Literal["zh", "en"] = "zh"
+
+
+class ConversationCreate(BaseModel):
+    repo_path: str
+    issue_url: str | None = None
+    lang: Literal["zh", "en"] = "zh"
+
+
+class MessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=8000)
+    lang: Literal["zh", "en"] = "zh"
 
 
 class Evidence(BaseModel):
