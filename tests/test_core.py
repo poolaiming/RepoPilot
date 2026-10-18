@@ -56,7 +56,7 @@ def test_conversation_saves_repository_memory(monkeypatch, tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as client:
         created = client.post(
             "/api/conversations",
             json={"repo_path": str(repo), "lang": "zh"},

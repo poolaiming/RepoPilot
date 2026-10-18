@@ -6,13 +6,13 @@ from pydantic import BaseModel, Field
 
 
 class TaskCreate(BaseModel):
-    issue_url: str | None = None
-    problem: str | None = None
-    repo_path: str
+    issue_url: str | None = Field(default=None, max_length=2048)
+    problem: str | None = Field(default=None, max_length=8000)
+    repo_path: str = Field(min_length=1, max_length=4096)
 
 
 class ScanRequest(BaseModel):
-    queries: list[str] | None = None
+    queries: list[str] | None = Field(default=None, max_length=8)
     limit: int = Field(default=12, ge=1, le=30)
 
 
@@ -32,13 +32,13 @@ class ModelConfigUpdate(BaseModel):
 
 
 class TestRequest(BaseModel):
-    command: str
+    command: str = Field(min_length=1, max_length=200)
     lang: Literal["zh", "en"] = "zh"
 
 
 class ConversationCreate(BaseModel):
-    repo_path: str
-    issue_url: str | None = None
+    repo_path: str = Field(min_length=1, max_length=4096)
+    issue_url: str | None = Field(default=None, max_length=2048)
     lang: Literal["zh", "en"] = "zh"
 
 

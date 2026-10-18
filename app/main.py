@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.db import connect, init_db, load_json, row_to_dict, save_json
+from app.observability import RequestTraceMiddleware, record_event
+from app.security import LocalSecurityMiddleware, repository_root
 from app.models import (
     AnalyzeRequest,
     ConversationCreate,
@@ -23,6 +27,8 @@ from app.services.search import extract_queries, search_repo
 from app.services.testing import run_test_command, suggest_test_commands
 
 app = FastAPI(title="RepoPilot")
+app.add_middleware(LocalSecurityMiddleware)
+app.add_middleware(RequestTraceMiddleware)
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -30,6 +36,17 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+
+
+@app.get("/api/health")
+def health():
+    try:
+        with connect() as conn:
+            conn.execute("select 1").fetchone()
+    except sqlite3.Error as exc:
+        record_event("health", status="error", error_type=type(exc).__name__)
+        return JSONResponse({"status": "error", "database": "error"}, status_code=503)
+    return {"status": "ok", "database": "ok"}
 
 
 @app.get("/")
@@ -57,15 +74,19 @@ def list_conversations() -> dict:
 
 @app.post("/api/conversations")
 async def create_conversation(payload: ConversationCreate) -> dict:
-    repo_path = str(Path(payload.repo_path).expanduser().resolve())
-    if not Path(repo_path).is_dir():
-        raise HTTPException(status_code=400, detail=f"Repository path does not exist: {repo_path}")
+    try:
+        repo_path = str(repository_root(payload.repo_path))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     issue = {}
     if payload.issue_url:
         try:
             issue = await fetch_issue(payload.issue_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"GitHub issue fetch failed: {exc}") from exc
+            record_event("github", outcome="error", error_type=type(exc).__name__)
+            raise HTTPException(status_code=502, detail="GitHub issue fetch failed. Check the URL and token, then retry.") from exc
     title = issue.get("title") or ("新对话" if payload.lang == "zh" else "New conversation")
     with connect() as conn:
         cur = conn.execute(
@@ -109,6 +130,10 @@ def get_conversation(conversation_id: int) -> dict:
 async def send_message(conversation_id: int, payload: MessageCreate) -> dict:
     current = get_conversation(conversation_id)
     conversation = current["conversation"]
+    try:
+        repository_root(conversation["repo_path"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     user_message = _save_message(conversation_id, "user", payload.content)
     memory = extract_memory(payload.content)
     if memory:
@@ -141,7 +166,7 @@ async def send_message(conversation_id: int, payload: MessageCreate) -> dict:
             expanded_queries = await expand_search_queries(query_text)
             if expanded_queries:
                 evidence = search_repo(conversation["repo_path"], expanded_queries, 8)
-    except Exception as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     history = get_conversation(conversation_id)
     reply = await chat_reply(
@@ -172,7 +197,7 @@ def test_conversation(conversation_id: int, payload: TestRequest) -> dict:
     conversation = get_conversation(conversation_id)["conversation"]
     try:
         result = run_test_command(conversation["repo_path"], payload.command)
-    except Exception as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     passed = result["exit_code"] == 0
     if payload.lang == "zh":
@@ -211,18 +236,25 @@ def update_config(payload: ModelConfigUpdate) -> dict:
 async def list_models(provider: str) -> dict:
     try:
         return {"models": await fetch_model_ids(provider)}
-    except Exception as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        record_event("model_list", outcome="error", error_type=type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Model list request failed. Check provider settings and retry.") from exc
 
 
 @app.post("/api/tasks")
 async def create_task(payload: TaskCreate) -> dict:
     if not payload.issue_url and not payload.problem:
         raise HTTPException(status_code=400, detail="Provide issue_url or problem.")
+    try:
+        repo_path = str(repository_root(payload.repo_path))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     with connect() as conn:
         cur = conn.execute(
             "insert into tasks (issue_url, problem, repo_path) values (?, ?, ?)",
-            (payload.issue_url, payload.problem, payload.repo_path),
+            (payload.issue_url, payload.problem, repo_path),
         )
         task_id = cur.lastrowid
 
@@ -234,8 +266,11 @@ async def create_task(payload: TaskCreate) -> dict:
                     "insert or replace into issues (task_id, title, body, comments_json) values (?, ?, ?, ?)",
                     (task_id, issue["title"], issue["body"], save_json(issue["comments"])),
                 )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"GitHub issue fetch failed: {exc}") from exc
+            record_event("github", outcome="error", error_type=type(exc).__name__)
+            raise HTTPException(status_code=502, detail="GitHub issue fetch failed. Check the URL and token, then retry.") from exc
     return get_task(task_id)
 
 
@@ -277,7 +312,7 @@ def scan_task(task_id: int, payload: ScanRequest) -> dict:
     queries = payload.queries or extract_queries(text)
     try:
         results = search_repo(task["repo_path"], queries, payload.limit)
-    except Exception as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     with connect() as conn:
         conn.execute("delete from search_results where task_id = ?", (task_id,))
@@ -291,6 +326,10 @@ def scan_task(task_id: int, payload: ScanRequest) -> dict:
 @app.post("/api/tasks/{task_id}/analyze")
 async def analyze_task(task_id: int, payload: AnalyzeRequest) -> dict:
     current = get_task(task_id)
+    try:
+        repository_root(current["task"]["repo_path"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     report = await analyze(current["task"], current["issue"], current["search_results"], payload.use_llm, payload.lang)
     markdown = report_to_markdown(report, payload.lang)
     with connect() as conn:
@@ -306,7 +345,7 @@ def test_task(task_id: int, payload: TestRequest) -> dict:
     task = get_task(task_id)["task"]
     try:
         result = run_test_command(task["repo_path"], payload.command)
-    except Exception as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     with connect() as conn:
         conn.execute(

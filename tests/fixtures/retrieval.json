@@ -1,0 +1,12 @@
+[
+  {"id": "zh-login", "question": "登录在哪里实现", "expected": ["auth.py"]},
+  {"id": "en-login", "question": "Find authentication", "expected": ["auth.py"]},
+  {"id": "zh-config", "question": "配置怎么读取", "expected": ["config.py"]},
+  {"id": "en-config", "question": "settings environment", "expected": ["config.py"]},
+  {"id": "zh-memory", "question": "数据库记忆存储", "expected": ["storage.py"]},
+  {"id": "en-payment", "question": "payment invoice", "expected": ["billing.py"]},
+  {"id": "zh-entry", "question": "项目启动入口", "expected": ["main.py"]},
+  {"id": "en-test", "question": "test verify", "expected": ["checks.py"]},
+  {"id": "en-missing", "question": "quantum_entanglement", "expected": []},
+  {"id": "zh-missing", "question": "量子纠缠算法", "expected": []}
+]

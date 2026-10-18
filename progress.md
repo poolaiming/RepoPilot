@@ -382,3 +382,83 @@
 ### Notes
 - Changed files: `README.md` adds the Chinese documentation and keeps the English version; `progress.md` records this task.
 - Rollback: restore `README.md` and remove this final progress entry.
+
+## 2026-10-18 - Task: Add an offline retrieval evaluation baseline
+### What was done
+- Added a fixed bilingual retrieval suite with positive and no-result cases, Recall@5/MRR@5/no-result metrics, per-case evidence, and a failing exit code below quality thresholds.
+- Recorded the approved local-single-user scope and ordered implementation in the existing docs directory.
+
+### Testing
+- `.\.venv\Scripts\python.exe -m pytest tests/test_evaluation.py -q` -> 2 passed, including a deliberately broken retriever failing the gate.
+- `.\.venv\Scripts\python.exe -m app.evaluation` -> 10 cases; all three metrics 1.0, quality gate passed.
+
+### Notes
+- Files: `app/evaluation.py` runs evaluation; `tests/fixtures/retrieval.json` defines expectations; `tests/fixtures/retrieval_repo/*.py` provides fixed source samples; `tests/test_evaluation.py` checks pass/fail behavior; `docs/quality-boundaries.md` records approved scope; `progress.md` appends this entry.
+- Rollback: remove only these new evaluation files and this entry. Pre-task progress backup: `C:\Users\lpc\AppData\Local\Temp\repopilot-quality-wxpnmy7x\progress.md`.
+- Limits: synthetic retrieval baseline only; no external model calls or answer-quality claim.
+
+## 2026-10-18 - Task: Add request and model observability
+### What was done
+- Added server-generated request IDs, structured request status/duration and model mode/error-type events, including formerly silent model errors.
+- Added SQLite connectivity health checks and generic traced server errors without exception contents.
+
+### Testing
+- `.\.venv\Scripts\python.exe -m pytest tests/test_observability.py tests/test_core.py -q` -> 14 passed, 3 pre-existing deprecation warnings.
+- Verified fresh request IDs, 422 tracing, healthy/failed database responses, model-error visibility, and exclusion of sensitive values from application events.
+
+### Notes
+- Files: `app/observability.py` owns operational event logging and HTTP tracing; `app/main.py` wires tracing and health; `app/services/analyzer.py` reports model outcomes; `tests/test_observability.py` covers tracing, health and failure behavior; `progress.md` appends this entry.
+- Rollback: restore the task-owned edits in main/analyzer, remove observability and its tests, and remove this entry; keep the preceding evaluation task and pre-existing work.
+- Limits: JSON events use the Uvicorn error logger; external access/HTTP client loggers retain their own formatting and retention settings.
+
+## 2026-10-18 - Task: Enforce approved local-single-user boundaries and close quality verification
+### What was done
+- Enforced loopback/Host/same-origin access, JSON writes, an actual 64 KiB request-body ceiling, and canonical repository roots on creation and later operations.
+- Disabled tests by default and restricted enabled execution to exact detected commands; bounded literal rg search, excluded common secret files, constrained model instructions and checked structured report citations.
+- Added operational search/test events, normal workflow and boundary regressions; synchronized bilingual setup, architecture, diagnostics, quality thresholds, limitations and rollback instructions.
+
+### Testing
+- `.\.venv\Scripts\python.exe -m pytest -q` -> 39 passed, 3 pre-existing deprecation warnings. Covers both task/conversation APIs, same-origin success, remote/cross-site/Host rejection, actual body size, roots including Windows junctions, disabled/arbitrary commands, timeout, sanitized failures and normal search/report persistence.
+- `.\.venv\Scripts\python.exe -m app.evaluation` -> 10 cases; Recall@5=1.0, MRR@5=1.0, no-result accuracy=1.0; exit 0. Broken-retriever regression confirms a failed gate returns nonzero.
+- `.\.venv\Scripts\python.exe -m compileall -q app tests` -> exit 0; `git diff --check` -> exit 0. All 25 task-owned text files decode as UTF-8 without BOM. The original progress backup remains an exact byte prefix.
+- `.\.venv\Scripts\python.exe C:/Users/lpc/AppData/Local/Temp/repopilot-quality-wxpnmy7x/http_smoke.py` -> real Uvicorn/HTTP on an ephemeral loopback port and temporary SQLite: pages/health 200, cross-origin and untrusted Host 403, outside root 400, normal chat evidence and correlated search/model/request events, disabled tests 400, enabled fixed compile command exit 0. Temporary server shut down; existing service untouched.
+- Smoke harness initially expected an incorrect nested test-result field; corrected it to the existing top-level response contract and reran successfully. SQLite handles in the temporary harness required garbage collection before Windows cleanup; no database code changed.
+
+### Notes
+- Files: `.env.example` documents roots and execution switches; `app/security.py` owns HTTP/repository boundaries; `app/models.py` bounds inputs; `app/main.py` enforces entry checks and sanitized dependency errors; `app/services/search.py` bounds and filters rg; `app/services/testing.py` enforces execution policy; `app/services/analyzer.py` constrains prompts and report citations; `tests/conftest.py` isolates runtime config and credentials; `tests/test_core.py` uses a loopback client; `tests/test_security.py` covers boundary/failure behavior; `tests/test_observability.py` adds normal correlated API workflows; `README.md` and `docs/architecture.md` document final behavior; `docs/quality-boundaries.md` holds operating/rollback details; `progress.md` appends this entry. Earlier entries list the new evaluation/observability modules and fixtures.
+- Rollback: follow the exact tracked-file allowlist and new-file list in `docs/quality-boundaries.md`, using source `e02d8b17a8d6eeec95c90056e6bc79a01abad87e`. Preserve pre-existing `.serena/`, `design-qa.md`, `.env`, runtime database and pre-task progress content. Pre-task progress backup: `C:\Users\lpc\AppData\Local\Temp\repopilot-quality-wxpnmy7x\progress.md`.
+- Activation: real `.env` remains unchanged; set `REPOPILOT_REPO_ROOTS` to intended trusted roots before restarting the existing service. Tests remain off unless explicitly enabled in configuration. No commit or push.
+- Limits: fixed synthetic retrieval suite, no real OpenAI/Anthropic/GitHub calls or browser UI session; npm/go/cargo/mvn execution was not exercised. Test scripts keep OS user permissions; child-process isolation and full-output memory limits remain outside this implementation. Existing SQLite connection lifecycle and third-party logging behavior were preserved.
+
+## 2026-10-18 - Task: Close Windows executable lookup boundary
+### What was done
+- Reproduced Python 3.12 Windows `shutil.which` implicitly selecting a working-directory `npm.cmd` despite an explicit filtered PATH.
+- Changed test-tool lookup to absolute candidates in PATH directories outside the repository tree; added a regression with competing repository/current-directory/trusted tools and a missing trusted tool.
+
+### Testing
+- `.\.venv\Scripts\python.exe -m pytest -q` -> 40 passed, 3 pre-existing deprecation warnings. The added regression confirms only the external trusted tool reaches subprocess; removing it blocks execution.
+- `.\.venv\Scripts\python.exe -m compileall -q app tests` -> exit 0.
+- Reran the real-HTTP temporary-server smoke harness -> all checks passed, including enabled fixed Python compile exit 0 and request/search/model event correlation.
+- Initial regression assertion differed only in Windows PATHEXT suffix casing; changed the assertion to compare normalized OS paths and reran successfully.
+
+### Notes
+- Files: `app/services/testing.py` resolves absolute executable candidates; `tests/test_security.py` covers Windows current-directory precedence and repository PATH entries; `docs/quality-boundaries.md` documents lookup semantics; `progress.md` appends this evidence.
+- Rollback: restore the preceding test-tool lookup lines and remove this added regression/document sentence; full-task rollback remains in `docs/quality-boundaries.md`.
+- No dependency, real configuration, database, existing service, commit or remote change.
+
+## 2026-10-18 - Task: Prepare verified quality changes for repository upload
+### What was done
+- Prepared the completed evaluation, observability and local-single-user boundary changes for the user-requested commit and push to `poolaiming/RepoPilot`, branch `main`.
+- Limited the submission to the 25 task-owned files, including only this task's progress additions; preserved the pre-existing interview-document entry, `.serena/` and `design-qa.md` locally.
+
+### Testing
+- `.\.venv\Scripts\python.exe -m pytest -q` -> 40 passed, 3 pre-existing deprecation warnings.
+- `.\.venv\Scripts\python.exe -m app.evaluation` -> 10 cases, all three metrics 1.0, quality gate passed.
+- `.\.venv\Scripts\python.exe -m compileall -q app tests` and `git diff --check` -> exit 0.
+- `git fetch origin main` and `git rev-list --left-right --count HEAD...origin/main` -> remote checked, 0 ahead / 0 behind before commit.
+- All 25 task-owned text files decode as UTF-8 without BOM; credential-pattern scan found no matches. The pre-task progress backup remains an exact byte prefix.
+
+### Notes
+- Files: the existing task-owned source, tests, fixtures, config example and docs are submitted together; `progress.md` appends this upload-preparation evidence.
+- Rollback after upload: use `git revert` on the quality-change commit; keep local unrelated files and the pre-existing progress entry. No history rewrite is required.
+- Runtime activation remains separate: configure trusted repository roots and restart the existing service. Real provider calls and browser UI verification remain outside this upload check.

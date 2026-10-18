@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
+from time import perf_counter
+
+from app.observability import record_event
+from app.security import repository_root
 
 
 STOP_WORDS = {
@@ -52,9 +56,14 @@ def extract_queries(text: str, limit: int = 8) -> list[str]:
 
 
 def search_repo(repo_path: str, queries: list[str], limit: int = 12) -> list[dict]:
-    root = Path(repo_path).expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        raise ValueError(f"Repository path does not exist: {root}")
+    root = repository_root(repo_path)
+    return _search_repository(root, queries, limit)
+
+
+def _search_repository(root: Path, queries: list[str], limit: int = 12) -> list[dict]:
+    started = perf_counter()
+    if len(queries) > 8 or any(not query.strip() or len(query) > 200 for query in queries):
+        raise ValueError("Provide up to 8 non-empty search terms of at most 200 characters.")
     if not queries:
         return []
 
@@ -63,13 +72,19 @@ def search_repo(repo_path: str, queries: list[str], limit: int = 12) -> list[dic
     for query in queries:
         query_results = 0
         proc = subprocess.run(
-            ["rg", "--line-number", "--context", "2", "--fixed-strings", query, str(root)],
+            ["rg", "--no-config", "--line-number", "--context", "2", "--fixed-strings",
+             "--max-count", "8", "--max-filesize", "1M",
+             "--glob", "!.env*", "--glob", "!*.pem", "--glob", "!*.key",
+             "--glob", "!*.sqlite*", "--glob", "!*.db", "--glob", "!package-lock.json",
+             "--glob", "!.git/**", "--", query, str(root)],
             capture_output=True,
             text=True,
             timeout=15,
             encoding="utf-8",
             errors="replace",
         )
+        if proc.returncode not in {0, 1}:
+            raise ValueError("Repository search failed. Check that rg is installed and the repository is readable.")
         for block in _split_rg_output(proc.stdout):
             file_path = _first_path(block)
             if file_path and file_path not in seen:
@@ -87,6 +102,8 @@ def search_repo(repo_path: str, queries: list[str], limit: int = 12) -> list[dic
     ranked = sorted(results, key=lambda item: _result_sort_key(item, queries))[:limit]
     for score, item in enumerate(ranked):
         item["score"] = score
+    record_event("search", query_count=len(queries), result_count=len(ranked),
+                 duration_ms=round((perf_counter() - started) * 1000, 2))
     return ranked
 
 
